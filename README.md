@@ -103,6 +103,7 @@ uvicorn api.main:app --reload
 
 ---
 
+```
 ## Project Structure
 
 team-task-manager/
@@ -124,3 +125,4 @@ team-task-manager/
 │   └── 001_init.sql     # Database schema
 ├── railway.toml         # Railway deployment config
 └── requirements.txt
+```
