@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Project</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <nav class="navbar">
+    <h2><a href="/dashboard.html" style="color:white;text-decoration:none;">← Dashboard</a></h2>
+    <div>
+      <span id="user-name"></span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <div style="margin-bottom:24px;">
+      <h2 id="project-name">Loading...</h2>
+      <p id="project-desc" style="color:#6b7280;margin-top:4px;"></p>
+      <span id="your-role" class="badge" style="margin-top:8px;display:inline-block;"></span>
+    </div>
+
+    <!-- Members Section -->
+    <div class="section">
+      <h3>Team Members</h3>
+      <div id="members-list"></div>
+      <div id="add-member-area" style="display:none;margin-top:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <input type="email" id="member-email" placeholder="Member email" style="flex:1;min-width:200px;" />
+          <select id="member-role" style="padding:12px 14px;border:1px solid #d1d5db;border-radius:8px;">
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button onclick="addMember()" style="width:auto;padding:10px 20px;">Add</button>
+        </div>
+        <p id="member-error" class="error" style="margin-top:6px;"></p>
+      </div>
+    </div>
+
+    <!-- Tasks Section -->
+    <div class="section">
+      <h3>Tasks</h3>
+      <button onclick="openCreateTask()" style="margin-bottom:16px;width:auto;padding:8px 20px;">+ New Task</button>
+      <div id="tasks-list"></div>
+    </div>
+
+  </div>
+
+  <!-- Create Task Modal -->
+  <div class="modal-overlay" id="create-task-modal">
+    <div class="modal">
+      <h3>Create Task</h3>
+      <input type="text" id="task-title" placeholder="Task Title" />
+      <input type="text" id="task-desc" placeholder="Description (optional)" />
+      <input type="date" id="task-due" />
+      <select id="task-assignee">
+        <option value="">Unassigned</option>
+      </select>
+      <div class="modal-btns">
+        <button onclick="createTask()">Create</button>
+        <button class="btn-secondary" onclick="closeModal('create-task-modal')">Cancel</button>
+      </div>
+      <p id="task-error" class="error"></p>
+    </div>
+  </div>
+
+  <!-- Update Task Modal -->
+  <div class="modal-overlay" id="update-task-modal">
+    <div class="modal">
+      <h3>Update Task</h3>
+      <input type="hidden" id="update-task-id" />
+      <input type="text" id="update-task-title" placeholder="Title" />
+      <select id="update-task-status">
+        <option value="todo">To Do</option>
+        <option value="in_progress">In Progress</option>
+        <option value="done">Done</option>
+      </select>
+      <input type="date" id="update-task-due" />
+      <select id="update-task-assignee">
+        <option value="">Unassigned</option>
+      </select>
+      <div class="modal-btns">
+        <button onclick="updateTask()">Save</button>
+        <button class="btn-secondary" onclick="closeModal('update-task-modal')">Cancel</button>
+      </div>
+      <p id="update-task-error" class="error"></p>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = '/index.html';
+
+    const user = JSON.parse(localStorage.getItem('user'));
+    document.getElementById('user-name').textContent = user.name;
+
+    const projectId = new URLSearchParams(window.location.search).get('id');
+    if (!projectId) window.location.href = '/dashboard.html';
+
+    let projectMembers = [];
+    let myRole = 'member';
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = '/index.html';
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
+    }
+
+    function openCreateTask() {
+      document.getElementById('create-task-modal').classList.add('open');
+    }
+
+    async function api(path, method = 'GET', body = null) {
+      const opts = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      if (res.status === 401) {
+        localStorage.clear();
+        window.location.href = '/index.html';
+      }
+      return res;
+    }
+
+    function populateAssigneeDropdowns(members) {
+      const opts = members.map(m => `<option value="${m.id}">${m.name} (${m.role})</option>`).join('');
+      document.getElementById('task-assignee').innerHTML = '<option value="">Unassigned</option>' + opts;
+      document.getElementById('update-task-assignee').innerHTML = '<option value="">Unassigned</option>' + opts;
+    }
+
+    async function loadProject() {
+      const res = await api(`/projects/${projectId}`);
+      const data = await res.json();
+
+      document.getElementById('project-name').textContent = data.name;
+      document.getElementById('project-desc').textContent = data.description || '';
+      document.getElementById('your-role').textContent = data.your_role;
+      document.getElementById('your-role').className = `badge ${data.your_role}`;
+
+      myRole = data.your_role;
+      projectMembers = data.members;
+
+      // show add member area only for admins
+      if (myRole === 'admin') {
+        document.getElementById('add-member-area').style.display = 'block';
+      }
+
+      // render members
+      document.getElementById('members-list').innerHTML = data.members.map(m => `
+        <div class="task-item">
+          <div>
+            <div class="task-title">${m.name}</div>
+            <div class="task-meta">${m.email}</div>
+          </div>
+          <span class="badge ${m.role}">${m.role}</span>
+        </div>
+      `).join('');
+
+      populateAssigneeDropdowns(data.members);
+      loadTasks();
+    }
+
+    async function loadTasks() {
+      const res = await api(`/projects/${projectId}/tasks`);
+      const tasks = await res.json();
+
+      const el = document.getElementById('tasks-list');
+      if (tasks.length === 0) {
+        el.innerHTML = '<p class="empty">No tasks yet.</p>';
+        return;
+      }
+
+      el.innerHTML = tasks.map(t => `
+        <div class="task-item">
+          <div>
+            <div class="task-title">${t.title}</div>
+            <div class="task-meta">
+              ${t.assigned_to ? 'Assigned to ' + t.assigned_to.name : 'Unassigned'}
+              ${t.due_date ? ' · Due ' + t.due_date : ''}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="badge ${t.status}">${t.status.replace('_', ' ')}</span>
+            <button onclick="openUpdateTask('${t.id}','${t.title}','${t.status}','${t.due_date || ''}','${t.assigned_to ? t.assigned_to.name : ''}')"
+              style="width:auto;padding:6px 12px;font-size:0.8rem;background:#f3f4f6;color:#374151;">
+              Edit
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openUpdateTask(id, title, status, due_date, assigned_name) {
+      document.getElementById('update-task-id').value = id;
+      document.getElementById('update-task-title').value = title;
+      document.getElementById('update-task-status').value = status;
+      document.getElementById('update-task-due').value = due_date;
+      document.getElementById('update-task-modal').classList.add('open');
+    }
+
+    async function addMember() {
+      const email = document.getElementById('member-email').value.trim();
+      const role = document.getElementById('member-role').value;
+
+      if (!email) {
+        document.getElementById('member-error').textContent = 'Email is required.';
+        return;
+      }
+
+      const res = await api(`/projects/${projectId}/members`, 'POST', { email, role });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById('member-error').textContent = data.detail;
+        return;
+      }
+
+      document.getElementById('member-email').value = '';
+      document.getElementById('member-error').textContent = '';
+      loadProject();
+    }
+
+    async function createTask() {
+      const title = document.getElementById('task-title').value.trim();
+      const description = document.getElementById('task-desc').value.trim();
+      const due_date = document.getElementById('task-due').value || null;
+      const assigned_to = document.getElementById('task-assignee').value || null;
+
+      if (!title) {
+        document.getElementById('task-error').textContent = 'Title is required.';
+        return;
+      }
+
+      const res = await api(`/projects/${projectId}/tasks`, 'POST', {
+        title, description, due_date, assigned_to
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById('task-error').textContent = data.detail;
+        return;
+      }
+
+      closeModal('create-task-modal');
+      document.getElementById('task-title').value = '';
+      document.getElementById('task-desc').value = '';
+      document.getElementById('task-due').value = '';
+      loadTasks();
+    }
+
+    async function updateTask() {
+      const id = document.getElementById('update-task-id').value;
+      const title = document.getElementById('update-task-title').value.trim();
+      const status = document.getElementById('update-task-status').value;
+      const due_date = document.getElementById('update-task-due').value || null;
+      const assigned_to = document.getElementById('update-task-assignee').value || null;
+
+      const res = await api(`/tasks/${id}`, 'PATCH', { title, status, due_date, assigned_to });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById('update-task-error').textContent = data.detail;
+        return;
+      }
+
+      closeModal('update-task-modal');
+      loadTasks();
+    }
+
+    loadProject();
+  </script>
+</body>
+</html>

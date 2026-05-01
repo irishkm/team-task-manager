@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <nav class="navbar">
+    <h2>Team Task Manager</h2>
+    <div>
+      <span id="user-name"></span>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="number" id="stat-todo">0</div>
+        <div class="label">To Do</div>
+      </div>
+      <div class="stat-card">
+        <div class="number" id="stat-inprogress">0</div>
+        <div class="label">In Progress</div>
+      </div>
+      <div class="stat-card">
+        <div class="number" id="stat-done">0</div>
+        <div class="label">Done</div>
+      </div>
+    </div>
+
+    <!-- Overdue Tasks -->
+    <div class="section">
+      <h3>⚠️ Overdue Tasks</h3>
+      <div id="overdue-list"><p class="empty">No overdue tasks.</p></div>
+    </div>
+
+    <!-- My Tasks -->
+    <div class="section">
+      <h3>My Tasks</h3>
+      <div id="my-tasks-list"><p class="empty">No tasks assigned to you.</p></div>
+    </div>
+
+    <!-- My Projects -->
+    <div class="section">
+      <h3>My Projects</h3>
+      <button onclick="openCreateProject()" style="margin-bottom:16px;width:auto;padding:8px 20px;">+ New Project</button>
+      <div class="project-grid" id="projects-grid"></div>
+    </div>
+
+  </div>
+
+  <!-- Create Project Modal -->
+  <div class="modal-overlay" id="create-project-modal">
+    <div class="modal">
+      <h3>Create New Project</h3>
+      <input type="text" id="project-name" placeholder="Project Name" />
+      <input type="text" id="project-desc" placeholder="Description (optional)" />
+      <div class="modal-btns">
+        <button onclick="createProject()">Create</button>
+        <button class="btn-secondary" onclick="closeModal('create-project-modal')">Cancel</button>
+      </div>
+      <p id="project-error" class="error"></p>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = '/index.html';
+
+    const user = JSON.parse(localStorage.getItem('user'));
+    document.getElementById('user-name').textContent = user.name;
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = '/index.html';
+    }
+
+    function openCreateProject() {
+      document.getElementById('create-project-modal').classList.add('open');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
+    }
+
+    async function api(path, method = 'GET', body = null) {
+      const opts = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      if (res.status === 401) {
+        localStorage.clear();
+        window.location.href = '/index.html';
+      }
+      return res;
+    }
+
+    async function loadDashboard() {
+      const res = await api('/dashboard');
+      const data = await res.json();
+
+      // stats
+      document.getElementById('stat-todo').textContent = data.status_breakdown.todo;
+      document.getElementById('stat-inprogress').textContent = data.status_breakdown.in_progress;
+      document.getElementById('stat-done').textContent = data.status_breakdown.done;
+
+      // overdue
+      const overdueEl = document.getElementById('overdue-list');
+      if (data.overdue_tasks.length === 0) {
+        overdueEl.innerHTML = '<p class="empty">No overdue tasks.</p>';
+      } else {
+        overdueEl.innerHTML = data.overdue_tasks.map(t => `
+          <div class="task-item">
+            <div>
+              <div class="task-title">${t.title}</div>
+              <div class="task-meta">${t.project_name} · Due ${t.due_date}</div>
+            </div>
+            <span class="badge overdue">Overdue</span>
+          </div>
+        `).join('');
+      }
+
+      // my tasks
+      const tasksEl = document.getElementById('my-tasks-list');
+      if (data.my_tasks.length === 0) {
+        tasksEl.innerHTML = '<p class="empty">No tasks assigned to you.</p>';
+      } else {
+        tasksEl.innerHTML = data.my_tasks.map(t => `
+          <div class="task-item">
+            <div>
+              <div class="task-title">${t.title}</div>
+              <div class="task-meta">${t.project_name}${t.due_date ? ' · Due ' + t.due_date : ''}</div>
+            </div>
+            <span class="badge ${t.status}">${t.status.replace('_', ' ')}</span>
+          </div>
+        `).join('');
+      }
+
+      // projects
+      const gridEl = document.getElementById('projects-grid');
+      if (data.projects.length === 0) {
+        gridEl.innerHTML = '<p class="empty">No projects yet. Create one!</p>';
+      } else {
+        gridEl.innerHTML = data.projects.map(p => `
+          <div class="project-card" onclick="window.location.href='/project.html?id=${p.id}'">
+            <h4>${p.name}</h4>
+            <p><span class="badge ${p.role}">${p.role}</span></p>
+          </div>
+        `).join('');
+      }
+    }
+
+    async function createProject() {
+      const name = document.getElementById('project-name').value.trim();
+      const description = document.getElementById('project-desc').value.trim();
+
+      if (!name) {
+        document.getElementById('project-error').textContent = 'Project name is required.';
+        return;
+      }
+
+      const res = await api('/projects', 'POST', { name, description });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById('project-error').textContent = data.detail;
+        return;
+      }
+
+      closeModal('create-project-modal');
+      document.getElementById('project-name').value = '';
+      document.getElementById('project-desc').value = '';
+      loadDashboard();
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
